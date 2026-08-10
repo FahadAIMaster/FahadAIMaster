@@ -6,7 +6,7 @@ Lowercase mono label with a hairline rule running to the right edge, per Part 3.
 import base64
 import os
 
-LABELS = ["stats", "languages", "year"]
+LABELS = ["languages", "year"]
 WIDTH = 460
 HEIGHT = 28
 FONT_PATH = "fonts/headings.woff2"

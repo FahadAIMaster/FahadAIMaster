@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate stats.svg, streak.svg, langs.svg, year.svg from GitHub's GraphQL API.
+"""Generate langs.svg, year.svg from GitHub's GraphQL API.
 Standard library only - urllib, json, datetime. No third-party dependencies.
 
 Determinism (both required, per the setup guide):
@@ -82,40 +82,6 @@ def flatten_days(user):
     return days
 
 
-def compute_streaks(days):
-    counts = [c for _, c in days]
-    dates = [d for d, _ in days]
-    longest = cur = 0
-    longest_range = cur_range = (None, None)
-    start_idx = None
-    for i, c in enumerate(counts):
-        if c > 0:
-            if start_idx is None:
-                start_idx = i
-            cur = i - start_idx + 1
-            cur_range = (dates[start_idx], dates[i])
-            if cur > longest:
-                longest = cur
-                longest_range = cur_range
-        else:
-            start_idx = None
-            cur = 0
-    # Current streak: walk back from the most recent day.
-    current = 0
-    current_range = (None, None)
-    end_idx = len(counts) - 1
-    # Allow today to be 0 (day not over yet) without breaking the streak.
-    if counts and counts[-1] == 0:
-        end_idx -= 1
-    i = end_idx
-    while i >= 0 and counts[i] > 0:
-        current += 1
-        i -= 1
-    if current:
-        current_range = (dates[max(i + 1, 0)], dates[end_idx])
-    return current, current_range, longest, longest_range
-
-
 def compute_languages(user):
     totals = {}
     colors = {}
@@ -149,68 +115,33 @@ def svg_wrap(width, height, body):
 </svg>'''
 
 
-def render_stats_svg(total, weekly_counts):
-    # Column chart, not a line - daily contributions are sparse/discrete, a line
-    # through 0,0,11,0,0,10 implies values that never existed.
-    bars = []
-    max_v = max(weekly_counts) or 1
-    bar_w = 6
-    gap = 2
-    x = 20
-    base_y = 90
-    for v in weekly_counts[-52:]:
-        h = int((v / max_v) * 60)
-        bars.append(f'<rect x="{x}" y="{base_y - h}" width="{bar_w}" height="{h}" fill="#58a6ff" opacity="0.85"/>')
-        x += bar_w + gap
-    body = f'''
-<text x="20" y="30" font-size="22" class="accent">{total}</text>
-<text x="20" y="48" font-size="11" class="dim">contributions, last 12 months</text>
-{"".join(bars)}
-<line x1="20" y1="{base_y}" x2="{x}" y2="{base_y}" stroke="#30363d" stroke-width="1"/>
-'''
-    return svg_wrap(max(x + 20, 380), 110, body)
-
-
-def render_streak_svg(current, current_range, longest, longest_range):
-    def fmt(rng):
-        if rng[0] is None:
-            return "—"
-        return f"{rng[0]} → {rng[1]}"
-    body = f'''
-<text x="20" y="30" font-size="20" class="accent">{current} day{"s" if current != 1 else ""}</text>
-<text x="20" y="48" font-size="11" class="dim">current streak · {fmt(current_range)}</text>
-<text x="20" y="78" font-size="20">{longest} day{"s" if longest != 1 else ""}</text>
-<text x="20" y="96" font-size="11" class="dim">longest streak · {fmt(longest_range)}</text>
-'''
-    return svg_wrap(380, 115, body)
-
-
 def render_langs_svg(langs):
     rows = []
-    y = 30
+    y = 34
     for lang in langs:
-        bar_w = int(lang["pct"] * 2.4)
+        bar_w = int(lang["pct"] * 2.8)
         rows.append(f'''
-<text x="20" y="{y}" font-size="12">{lang["name"]}</text>
-<rect x="120" y="{y-10}" width="{bar_w}" height="10" fill="{lang["color"]}"/>
-<text x="{120+bar_w+8}" y="{y}" font-size="11" class="dim">{lang["pct"]:.1f}% · {lang["repos"]} repo{"s" if lang["repos"] != 1 else ""}</text>''')
-        y += 26
-    return svg_wrap(400, y + 10, "".join(rows))
+<text x="24" y="{y}" font-size="13">{lang["name"]}</text>
+<rect x="140" y="{y-11}" width="{bar_w}" height="11" fill="{lang["color"]}"/>
+<text x="{140+bar_w+10}" y="{y}" font-size="12" class="dim">{lang["pct"]:.1f}% · {lang["repos"]} repo{"s" if lang["repos"] != 1 else ""}</text>''')
+        y += 30
+    return svg_wrap(460, y + 12, "".join(rows))
 
 
 def render_year_svg(days):
     # One character per day using the portrait's own ramp - shared visual language.
     cols = []
-    x, y = 20, 20
+    x, y = 24, 24
+    step = 9.8
     for i, (_, count) in enumerate(days[-365:]):
         level = min(len(RAMP) - 1, int(count))
         ch = RAMP[level] if count > 0 else "."
-        cols.append(f'<text x="{x}" y="{y}" font-size="9" class="dim">{ch}</text>')
-        x += 8
+        cols.append(f'<text x="{x:.1f}" y="{y}" font-size="10" class="dim">{ch}</text>')
+        x += step
         if (i + 1) % 53 == 0:
-            x = 20
-            y += 11
-    return svg_wrap(460, y + 15, "".join(cols))
+            x = 24
+            y += 13
+    return svg_wrap(560, y + 18, "".join(cols))
 
 
 def write(path, content):
@@ -221,22 +152,12 @@ def write(path, content):
 def main():
     user = fetch_contributions()
     days = flatten_days(user)
-    total = user["contributionsCollection"]["contributionCalendar"]["totalContributions"]
-
-    # Weekly sparkline: sum each 7-day bucket.
-    weekly = []
-    for i in range(0, len(days), 7):
-        weekly.append(sum(c for _, c in days[i:i + 7]))
-
-    current, current_range, longest, longest_range = compute_streaks(days)
     langs = compute_languages(user)
 
-    write("stats.svg", render_stats_svg(total, weekly))
-    write("streak.svg", render_streak_svg(current, current_range, longest, longest_range))
     write("langs.svg", render_langs_svg(langs))
     write("year.svg", render_year_svg(days))
 
-    print(f"Generated: total={total}, current_streak={current}, longest_streak={longest}, top_lang={langs[0]['name'] if langs else 'n/a'}")
+    print(f"Generated: top_lang={langs[0]['name'] if langs else 'n/a'}")
 
 
 if __name__ == "__main__":
